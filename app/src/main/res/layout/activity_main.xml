@@ -59,6 +59,29 @@
             android:textColor="#FFFFFF" />
     </LinearLayout>
 
+    <!-- Host presets -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/presetGoogle"
+            style="@style/HostChip"
+            android:text="google.com" />
+
+        <TextView
+            android:id="@+id/preset8888"
+            style="@style/HostChip"
+            android:text="8.8.8.8" />
+
+        <TextView
+            android:id="@+id/preset1111"
+            style="@style/HostChip"
+            android:text="1.1.1.1" />
+    </LinearLayout>
+
     <!-- Big last-ping readout + stability verdict -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -119,10 +142,24 @@
             android:textSize="13sp" />
 
         <Button
+            android:id="@+id/settingsBtn"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:text="Settings"
+            android:textColor="#3DDC84" />
+
+        <Button
             android:id="@+id/clearBtn"
             style="?android:attr/borderlessButtonStyle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
             android:text="Clear"
             android:textColor="#3DDC84" />
     </LinearLayout>

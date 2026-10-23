@@ -4,6 +4,16 @@
     <!-- Needed so the app process may open ICMP/network sockets for ping -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Keep pinging while minimized / screen off -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Floating bubble + timeout alert -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
@@ -20,5 +30,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".SettingsActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|uiMode"
+            android:exported="false"
+            android:label="Bubble settings"
+            android:windowSoftInputMode="adjustResize|stateHidden" />
+
+        <service
+            android:name=".PingService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Continuous network ping monitor" />
+        </service>
     </application>
 </manifest>
