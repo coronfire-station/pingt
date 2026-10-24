@@ -9,6 +9,7 @@ Continuous ping, like `ping google.com -t` in Windows cmd. Uses the phone's own 
 - Keeps pinging when minimized or with the screen off, until you press **Stop** (in the app or the notification)
 - Floating bubble over other apps, including fullscreen landscape games
 - Game mode (click-through): the bubble never blocks touches
+- Put the bubble exactly where you want, anywhere on the screen, even in the status bar strip at the very top, with an on-screen positioning tool
 - Host presets: google.com, 8.8.8.8, 1.1.1.1. The last host is remembered.
 - Optional keep-screen-on while pinging (only while the app is open)
 
@@ -19,7 +20,7 @@ While pinging there is a silent ongoing notification:
 
 - **Stop**: stops pinging and removes the bubble
 - **Click-through: ON/OFF**: switches game mode on the live bubble
-- **Hide bubble / Show bubble**
+- **Hide bubble / Show bubble** (shows **Done positioning** instead while the positioning tool is open)
 
 ## Bubble settings
 
@@ -35,9 +36,12 @@ Main screen → **Settings**. Every change is saved at once and applied to the r
 | Click-through (game mode) | Off | Touches go straight to the game. No drag or tap on the bubble. |
 | Show only when bad | Off | Hidden while green. Shows on yellow, red or timeout; hides again after 3 greens in a row. |
 | Blink on timeout | On | Bubble pulses while the last ping failed |
-| Snap to edge | On | After dragging, slides to the nearest left/right edge |
+| Snap after drag | Off | Off, Left/Right edges, Nearest corner (top corners go all the way up to the status bar strip) |
 | Lock position | Off | No dragging (tap still opens the app) |
-| Move bubble to | – | Top-left, Top-right, Bottom-left, Bottom-right for the current orientation |
+| Move bubble to | – | 9 presets (Top/Middle/Bottom × left/center/right) and Status bar left/center/right, for the current orientation |
+| Fit to status bar height | Off | While the bubble sits in the status bar strip, it is scaled to exactly the strip's height (min 16dp) |
+| Adjust position on screen | – | Opens the positioning tool (below) |
+| Reset position | – | Back to Top-right |
 | Hide while Ping -t is open | On | No bubble on top of the app itself |
 | Vibrate after timeouts in a row | 3 | Off, 1, 3, 5. One short double pulse per outage; resets after a reply. |
 | Thresholds | Green < 80, Yellow < 150 ms | Colors and verdict. Must be 1 ≤ green < yellow ≤ 2000. |
@@ -45,7 +49,25 @@ Main screen → **Settings**. Every change is saved at once and applied to the r
 
 Red border on the bubble = verdict UNSTABLE/DOWN or the last ping failed. `TO` = timeout or failure, `--` = waiting for the first reply.
 
-Drag the bubble to move it, tap it to open Ping -t. Portrait and landscape keep separate positions.
+Drag the bubble to move it, tap it to open Ping -t. Portrait and landscape keep separate positions. Positions are saved relative to the screen, so they survive restarts, rotation, and size/style changes. Upgrading from v1.1 keeps your old spot (and an untouched v1.1 install keeps snap to edges on).
+
+## Positioning tool
+
+Settings → **Adjust position on screen**. Ping -t goes to the background (starting a ping to the last host if needed) so you see your home screen or your game, with the live bubble and a small control panel:
+
+- **X / Y** readout in px and %
+- **Arrows** ↑ ↓ ← →: tap moves one step, hold repeats and speeds up (1dp → 4dp → 12dp)
+- **Fine 1dp / Coarse 8dp** step
+- **SB L / SB C / SB R** (status bar left/center/right) and **Center**
+- **Done** keeps the position, **Cancel** puts back the one you had before
+- Drag the panel by its title bar. You can also drag the bubble itself while the tool is open; dropping it in the status bar strip keeps it there.
+- Rotate the phone to set the other orientation's position.
+- While the tool is open the bubble ignores click-through, show-only-when-bad, hide-in-app, lock and snap. Stopping the ping closes the tool and counts as Cancel.
+
+### The status bar strip (Android rules)
+
+- Apps can't draw over the status bar. In the strip, the status bar icons draw on top of the bubble unless the game hides the status bar (fullscreen games do, so there the bubble is fully visible).
+- Touches in the strip go to the status bar, not to the bubble. Once the bubble is up there you can't drag it with your finger; use the positioning tool (arrows or presets) to move it.
 
 ## Permissions you'll be asked for
 
