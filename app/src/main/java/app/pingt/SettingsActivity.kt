@@ -194,11 +194,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         divider()
         switchRow("Blink on timeout", null, Prefs.BLINK_TIMEOUT, true)
         divider()
-        switchRow("Snap to edge", null, Prefs.SNAP_EDGE, true)
-        divider()
-        switchRow("Lock position", null, Prefs.LOCK_POSITION, false)
-        divider()
-        positionRow()
+        positionSection()
         divider()
         switchRow("Hide while Ping -t is open", null, Prefs.HIDE_IN_APP, true)
         divider()
@@ -361,37 +357,108 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         syncers.add(sync)
     }
 
-    private fun positionRow() {
+    private fun positionSection() {
+        root.addView(TextView(this).apply {
+            text = "POSITION"
+            setTextColor(ACCENT)
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = 0.1f
+            setPadding(0, px(10), 0, 0)
+        })
+        chipRow(
+            "Snap after drag",
+            listOf("Off" to "off", "Left/Right edges" to "edges", "Nearest corner" to "corner"),
+            { prefs.getString(Prefs.SNAP_MODE, "off") ?: "off" },
+            { prefs.edit().putString(Prefs.SNAP_MODE, it).apply() }
+        )
+        switchRow("Lock position", null, Prefs.LOCK_POSITION, false)
+
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, px(10), 0, px(10))
         }
         box.addView(title("Move bubble to"))
         box.addView(subtitle("For the current orientation"))
-        val (hs, strip) = chipStrip()
-        listOf("Top-left" to "tl", "Top-right" to "tr", "Bottom-left" to "bl", "Bottom-right" to "br").forEach { (label, corner) ->
-            val c = chip(label)
-            styleChip(c, false)
-            c.setOnClickListener { setCorner(corner, label) }
-            strip.addView(c, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, px(8), px(8), 0)
-            })
+        fun presetRow(items: List<Pair<String, String>>, short: (String) -> String) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            items.forEach { (id, label) ->
+                val c = chip(short(label)).apply {
+                    textSize = 12f
+                    maxLines = 1
+                    setPadding(px(4), px(7), px(4), px(7))
+                }
+                styleChip(c, false)
+                c.setOnClickListener { setPreset(id, label) }
+                row.addView(c, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(0, px(8), px(6), 0)
+                })
+            }
+            box.addView(row)
         }
-        box.addView(hs)
+        BubbleGeometry.PRESETS.chunked(3).forEach { presetRow(it) { l -> l } }
+        box.addView(subtitle("Status bar strip (very top, y = 0)").apply { setPadding(0, px(10), 0, 0) })
+        presetRow(BubbleGeometry.STATUS_BAR_PRESETS) { l -> l.substringAfter(": ").replaceFirstChar { it.uppercase() } }
+        box.addView(subtitle("Status bar icons draw over the bubble unless the game is fullscreen (Android rule).").apply {
+            setPadding(0, px(8), 0, 0)
+        })
         root.addView(box)
+
+        switchRow("Fit to status bar height", "Sa status bar, kasing-taas ng status bar", Prefs.FIT_STATUS_BAR, false)
+
+        val buttons = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, px(6), 0, px(10))
+        }
+        buttons.addView(actionButton("Adjust position on screen", ACCENT_DARK) { startPositionTool() },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.6f).apply { marginEnd = px(8) })
+        buttons.addView(actionButton("Reset position", 0xFF333333.toInt()) {
+            setPreset(BubbleGeometry.DEFAULT_PRESET, "Top-right")
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(buttons)
     }
 
-    private fun setCorner(corner: String, label: String) {
-        val sz = Prefs.realScreenSize(this)
-        val land = sz.x > sz.y
-        val m = px(8)
-        val x = if (corner[1] == 'r') sz.x - preview.bubbleWidth() - m else m
-        val y = if (corner[0] == 'b') sz.y - preview.bubbleHeight() - m else m
-        prefs.edit()
-            .putInt(Prefs.posXKey(land), maxOf(0, x))
-            .putInt(Prefs.posYKey(land), maxOf(0, y))
-            .apply()
+    private fun actionButton(label: String, color: Int, onClick: () -> Unit) = TextView(this).apply {
+        text = label
+        textSize = 13f
+        typeface = Typeface.DEFAULT_BOLD
+        setTextColor(Color.WHITE)
+        gravity = Gravity.CENTER
+        setPadding(px(8), px(10), px(8), px(10))
+        background = GradientDrawable().apply {
+            cornerRadius = 8 * dp
+            setColor(color)
+        }
+        setOnClickListener { onClick() }
+    }
+
+    private fun setPreset(id: String, label: String) {
+        val scr = BubbleGeometry.screen(this)
+        val land = scr.x > scr.y
+        val f = BubbleGeometry.presetFractions(
+            id, BubbleSettings.load(prefs), scr, BubbleGeometry.statusBarHeight(this), dp
+        )
+        Prefs.savePosition(prefs, land, f)
         Toast.makeText(this, "Bubble: $label (${if (land) "landscape" else "portrait"})", Toast.LENGTH_SHORT).show()
+    }
+
+    /** Shows the real bubble + control panel over the home screen or a game. */
+    private fun startPositionTool() {
+        if (!Settings.canDrawOverlays(this)) {
+            openOverlaySettings()
+            return
+        }
+        if (!PingState.running) {
+            // The tool works on the live bubble, which only exists while pinging
+            val host = prefs.getString(Prefs.LAST_HOST, "google.com") ?: "google.com"
+            val start = Intent(this, PingService::class.java)
+                .setAction(PingService.ACTION_START)
+                .putExtra(PingService.EXTRA_HOST, host)
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(start) else startService(start)
+            Toast.makeText(this, "Pinging $host so the bubble is live", Toast.LENGTH_SHORT).show()
+        }
+        startService(Intent(this, PingService::class.java).setAction(PingService.ACTION_POSITION_START))
+        moveTaskToBack(true)
     }
 
     private fun thresholdRow() {

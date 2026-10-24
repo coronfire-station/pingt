@@ -5,6 +5,7 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Point
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -20,7 +21,9 @@ import kotlin.math.roundToLong
 class BubbleView(context: Context) : View(context) {
 
     private var bubbleStyle = "pill"
-    private var mult = 1f
+    private var userMult = 1f
+    private var fitPx = 0 // > 0: scaled so the height is exactly this (fit to status bar)
+    private val mult get() = if (fitPx > 0) fitPx / (baseDp(bubbleStyle).second * density) else userMult
     private var bg = "dark"
     private var greenMax = 80
     private var yellowMax = 150
@@ -52,13 +55,20 @@ class BubbleView(context: Context) : View(context) {
     private val outlined get() = bg == "none"
 
     fun setSettings(s: BubbleSettings) {
-        val resized = s.style != bubbleStyle || s.sizeMult != mult
+        val resized = s.style != bubbleStyle || s.sizeMult != userMult
         bubbleStyle = s.style
-        mult = s.sizeMult
+        userMult = s.sizeMult
         bg = s.background
         greenMax = s.greenMax
         yellowMax = s.yellowMax
         if (resized) requestLayout()
+        invalidate()
+    }
+
+    fun setFitHeight(px: Int) {
+        if (px == fitPx) return
+        fitPx = px
+        requestLayout()
         invalidate()
     }
 
@@ -94,25 +104,8 @@ class BubbleView(context: Context) : View(context) {
 
     // ---------------------------------------------------------------- size
 
-    private fun baseW() = when (bubbleStyle) {
-        "dot" -> 24f
-        "text" -> 52f
-        "bars" -> 58f
-        "graph" -> 104f
-        "ring" -> 40f
-        else -> 64f
-    }
-
-    private fun baseH() = when (bubbleStyle) {
-        "dot" -> 24f
-        "text" -> 24f
-        "graph" -> 30f
-        "ring" -> 40f
-        else -> 28f
-    }
-
-    fun bubbleWidth() = ceil(baseW() * density * mult).toInt()
-    fun bubbleHeight() = ceil(baseH() * density * mult).toInt()
+    fun bubbleWidth() = ceil(baseDp(bubbleStyle).first * density * mult).toInt()
+    fun bubbleHeight() = ceil(baseDp(bubbleStyle).second * density * mult).toInt()
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         setMeasuredDimension(bubbleWidth(), bubbleHeight())
@@ -304,6 +297,27 @@ class BubbleView(context: Context) : View(context) {
 
     companion object {
         const val GRAPH_POINTS = 20
+
+        /** Base size in dp (width, height) before the size multiplier. */
+        fun baseDp(style: String): Pair<Float, Float> = when (style) {
+            "dot" -> 24f to 24f
+            "text" -> 52f to 24f
+            "bars" -> 58f to 28f
+            "graph" -> 104f to 30f
+            "ring" -> 40f to 40f
+            else -> 64f to 28f
+        }
+
+        fun sizePx(style: String, mult: Float, density: Float): Point {
+            val (w, h) = baseDp(style)
+            return Point(ceil(w * density * mult).toInt(), ceil(h * density * mult).toInt())
+        }
+
+        /** Size when scaled to an exact height (fit to status bar). */
+        fun sizeForHeight(style: String, heightPx: Int): Point {
+            val (w, h) = baseDp(style)
+            return Point(ceil(w * heightPx / h).toInt(), heightPx)
+        }
 
         private const val BG_DARK = 0xDB0C0C0C.toInt()   // #0C0C0C @ ~86%
         private const val BG_LIGHT = 0xEBFAFAFA.toInt()  // #FAFAFA @ ~92%

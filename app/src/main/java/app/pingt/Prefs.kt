@@ -3,6 +3,7 @@ package app.pingt
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Point
+import android.graphics.PointF
 import android.hardware.display.DisplayManager
 import android.hardware.input.InputManager
 import android.os.Build
@@ -20,7 +21,8 @@ object Prefs {
     const val CLICK_THROUGH = "click_through"
     const val ONLY_WHEN_BAD = "only_when_bad"
     const val BLINK_TIMEOUT = "blink_timeout"
-    const val SNAP_EDGE = "snap_edge"
+    const val SNAP_MODE = "snap_mode"           // off | edges | corner
+    const val FIT_STATUS_BAR = "fit_status_bar"
     const val LOCK_POSITION = "lock_position"
     const val HIDE_IN_APP = "hide_in_app"
     const val VIBRATE_AFTER = "vibrate_after"
@@ -32,13 +34,62 @@ object Prefs {
     const val RUNNING_HOST = "running_host" // set while pinging, used if Android restarts the service
     const val NOTIF_ASKED = "notif_asked"
     const val OVERLAY_ASKED = "overlay_asked"
+    private const val VERSION = "prefs_version"
 
     fun get(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
-    fun posXKey(landscape: Boolean) = if (landscape) "pos_land_x" else "pos_port_x"
-    fun posYKey(landscape: Boolean) = if (landscape) "pos_land_y" else "pos_port_y"
+    /** Bubble position per orientation: top-left / (display size - bubble size), 0.0–1.0. */
+    fun posXKey(landscape: Boolean) = if (landscape) "pos_land_xf" else "pos_port_xf"
+    fun posYKey(landscape: Boolean) = if (landscape) "pos_land_yf" else "pos_port_yf"
     fun isPosKey(key: String?) = key != null && key.startsWith("pos_")
+
+    private val POS_KEYS = listOf(posXKey(false), posYKey(false), posXKey(true), posYKey(true))
+
+    /** Saved positions for both orientations (null = never set), for the positioning tool's Cancel. */
+    fun readPositions(p: SharedPreferences): Map<String, Float?> =
+        POS_KEYS.associateWith { if (p.contains(it)) p.getFloat(it, 0f) else null }
+
+    fun writePositions(p: SharedPreferences, pos: Map<String, Float?>) {
+        val e = p.edit()
+        pos.forEach { (k, v) -> if (v == null) e.remove(k) else e.putFloat(k, v) }
+        e.apply()
+    }
+
+    fun savePosition(p: SharedPreferences, landscape: Boolean, f: PointF) {
+        p.edit().putFloat(posXKey(landscape), f.x).putFloat(posYKey(landscape), f.y).apply()
+    }
+
+    /**
+     * One-time upgrade of v1.1 settings:
+     * - pixel positions (pos_port_x …) become fractions of the free space
+     * - snap_edge true/false becomes snap_mode edges/off (an untouched v1.1 install had snap on)
+     */
+    fun migrate(ctx: Context) {
+        val p = get(ctx)
+        if (p.getInt(VERSION, 1) >= 2) return
+        val e = p.edit()
+        if (p.all.isNotEmpty() && !p.contains(SNAP_MODE)) {
+            e.putString(SNAP_MODE, if (p.getBoolean("snap_edge", true)) "edges" else "off")
+        }
+        e.remove("snap_edge")
+
+        val real = realScreenSize(ctx)
+        val short = minOf(real.x, real.y)
+        val long = maxOf(real.x, real.y)
+        val s = BubbleSettings.load(p)
+        val size = BubbleView.sizePx(s.style, s.sizeMult, ctx.resources.displayMetrics.density)
+        for (land in listOf(false, true)) {
+            val old = if (land) "pos_land_" else "pos_port_"
+            if (p.contains(old + "x") && p.contains(old + "y")) {
+                val scr = if (land) Point(long, short) else Point(short, long)
+                val f = BubbleGeometry.fractions(p.getInt(old + "x", 0), p.getInt(old + "y", 0), size.x, size.y, scr)
+                e.putFloat(posXKey(land), f.x).putFloat(posYKey(land), f.y)
+            }
+            e.remove(old + "x").remove(old + "y")
+        }
+        e.putInt(VERSION, 2).apply()
+    }
 
     fun thresholdsValid(green: Int, yellow: Int) = green >= 1 && green < yellow && yellow <= 2000
 
@@ -61,7 +112,8 @@ data class BubbleSettings(
     val clickThrough: Boolean,
     val onlyWhenBad: Boolean,
     val blinkTimeout: Boolean,
-    val snapEdge: Boolean,
+    val snapMode: String,
+    val fitStatusBar: Boolean,
     val lockPosition: Boolean,
     val hideInApp: Boolean,
     val vibrateAfter: Int,
@@ -107,7 +159,8 @@ data class BubbleSettings(
                 clickThrough = p.getBoolean(Prefs.CLICK_THROUGH, false),
                 onlyWhenBad = p.getBoolean(Prefs.ONLY_WHEN_BAD, false),
                 blinkTimeout = p.getBoolean(Prefs.BLINK_TIMEOUT, true),
-                snapEdge = p.getBoolean(Prefs.SNAP_EDGE, true),
+                snapMode = p.getString(Prefs.SNAP_MODE, "off") ?: "off",
+                fitStatusBar = p.getBoolean(Prefs.FIT_STATUS_BAR, false),
                 lockPosition = p.getBoolean(Prefs.LOCK_POSITION, false),
                 hideInApp = p.getBoolean(Prefs.HIDE_IN_APP, true),
                 vibrateAfter = p.getInt(Prefs.VIBRATE_AFTER, 3),

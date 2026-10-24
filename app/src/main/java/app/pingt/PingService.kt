@@ -21,6 +21,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.widget.Toast
 import java.util.Locale
 
 /**
@@ -45,6 +46,11 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
     private var badShowing = false
     private var greenStreak = 0
 
+    // On-screen positioning tool
+    private var positioning = false
+    private var panel: PositionPanel? = null
+    private var posSnapshot: Map<String, Float?>? = null
+
     private val timeRe = Regex("""time[=<]\s*([\d.]+)\s*ms""")
     private val ttlRe = Regex("""ttl=(\d+)""", RegexOption.IGNORE_CASE)
     private val bytesRe = Regex("""^(\d+) bytes from""", RegexOption.MULTILINE)
@@ -60,7 +66,7 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
         intervalMs = settings.intervalMs.toLong()
         PingState.setThresholds(settings.greenMax, settings.yellowMax)
         overlay = BubbleOverlay(this, prefs)
-        overlay.applySettings(settings)
+        overlay.applySettings(effectiveSettings())
         prefs.registerOnSharedPreferenceChangeListener(this)
         PingState.addListener(this)
         createChannel()
@@ -74,6 +80,9 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
                 prefs.edit().putBoolean(Prefs.CLICK_THROUGH, !settings.clickThrough).apply()
             ACTION_TOGGLE_BUBBLE ->
                 prefs.edit().putBoolean(Prefs.SHOW_BUBBLE, !settings.show).apply()
+            ACTION_POSITION_START -> startPositioning()
+            ACTION_POSITION_DONE -> endPositioning(save = true)
+            ACTION_POSITION_CANCEL -> endPositioning(save = false)
             null -> {
                 // Android restarted us after killing the process: resume the last host.
                 prefs.getString(Prefs.RUNNING_HOST, null)?.let { startPing(it) }
@@ -84,6 +93,7 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
     }
 
     override fun onDestroy() {
+        endPositioning(save = false)
         stopWorker()
         PingState.stop()
         releaseWakeLock()
@@ -115,6 +125,7 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
     }
 
     private fun stopPing() {
+        endPositioning(save = false) // pinging stopped while positioning = Cancel
         stopWorker()
         PingState.stop()
         releaseWakeLock()
@@ -247,12 +258,16 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
     }
 
     private fun updateBubble() {
-        val want = PingState.running && settings.show && Settings.canDrawOverlays(this) &&
-            (!settings.hideInApp || !PingState.appVisible) &&
-            (!settings.onlyWhenBad || badShowing)
+        val want = PingState.running && Settings.canDrawOverlays(this) && (
+            positioning || (
+                settings.show &&
+                    (!settings.hideInApp || !PingState.appVisible) &&
+                    (!settings.onlyWhenBad || badShowing)
+                )
+            )
         if (want) {
             overlay.show()
-            overlay.update(settings)
+            overlay.update(effectiveSettings())
         } else {
             overlay.hide()
         }
@@ -276,6 +291,11 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
     // ---------------------------------------------------------------- live settings
 
     override fun onSharedPreferenceChanged(p: SharedPreferences, key: String?) {
+        if (Prefs.isPosKey(key)) {
+            overlay.reloadPosition()
+            return
+        }
+        if (key == Prefs.LAST_HOST || key == Prefs.RUNNING_HOST) return
         settings = BubbleSettings.load(p)
         intervalMs = settings.intervalMs.toLong()
         PingState.setThresholds(settings.greenMax, settings.yellowMax)
@@ -284,11 +304,46 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
                 (PingState.lastKind == PingState.Kind.OK && PingState.lastMs >= PingState.greenMax)
             greenStreak = 0
         }
-        overlay.applySettings(settings)
-        if (Prefs.isPosKey(key)) overlay.reloadPosition()
+        overlay.applySettings(effectiveSettings())
         if (PingState.running) {
-            updateNotification()
+            if (key == null || key == Prefs.CLICK_THROUGH || key == Prefs.SHOW_BUBBLE) updateNotification()
             updateBubble()
+        }
+    }
+
+    /** While the positioning tool is open the bubble is always touchable and draggable, no snap. */
+    private fun effectiveSettings() =
+        if (positioning) settings.copy(clickThrough = false, lockPosition = false, snapMode = "off") else settings
+
+    // ---------------------------------------------------------------- positioning tool
+
+    private fun startPositioning() {
+        if (positioning || !PingState.running || !Settings.canDrawOverlays(this)) return
+        posSnapshot = Prefs.readPositions(prefs)
+        positioning = true
+        overlay.positioning = true
+        overlay.applySettings(effectiveSettings())
+        updateBubble()
+        panel = PositionPanel(this, overlay, { endPositioning(save = true) }, { endPositioning(save = false) })
+            .also { it.show() }
+        updateNotification()
+    }
+
+    /** Done keeps what was saved while moving; Cancel restores the snapshot taken on open. */
+    private fun endPositioning(save: Boolean) {
+        if (!positioning) return
+        positioning = false
+        overlay.positioning = false
+        panel?.hide()
+        panel = null
+        if (!save) posSnapshot?.let { Prefs.writePositions(prefs, it) }
+        posSnapshot = null
+        overlay.applySettings(effectiveSettings())
+        overlay.reloadPosition()
+        if (PingState.running) {
+            updateBubble()
+            updateNotification()
+            Toast.makeText(this, if (save) "Bubble position saved" else "Bubble position restored", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -299,8 +354,12 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         overlay.onScreenChanged()
+        panel?.onScreenChanged()
         // Some devices report the new display size a moment after the config change
-        main.postDelayed({ overlay.onScreenChanged() }, 300)
+        main.postDelayed({
+            overlay.onScreenChanged()
+            panel?.onScreenChanged()
+        }, 300)
     }
 
     // ---------------------------------------------------------------- notification
@@ -338,7 +397,10 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
             .setContentIntent(openAppIntent())
             .addAction(action("Stop", ACTION_STOP, 1))
             .addAction(action(if (settings.clickThrough) "Click-through: ON" else "Click-through: OFF", ACTION_TOGGLE_CLICK, 2))
-            .addAction(action(if (settings.show) "Hide bubble" else "Show bubble", ACTION_TOGGLE_BUBBLE, 3))
+            .addAction(
+                if (positioning) action("Done positioning", ACTION_POSITION_DONE, 4)
+                else action(if (settings.show) "Hide bubble" else "Show bubble", ACTION_TOGGLE_BUBBLE, 3)
+            )
         if (Build.VERSION.SDK_INT < 26) b.setPriority(Notification.PRIORITY_LOW)
         if (Build.VERSION.SDK_INT >= 31) b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
         return b.build()
@@ -362,6 +424,9 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
         const val ACTION_STOP = "app.pingt.STOP"
         const val ACTION_TOGGLE_CLICK = "app.pingt.TOGGLE_CLICK"
         const val ACTION_TOGGLE_BUBBLE = "app.pingt.TOGGLE_BUBBLE"
+        const val ACTION_POSITION_START = "app.pingt.POSITION_START"
+        const val ACTION_POSITION_DONE = "app.pingt.POSITION_DONE"
+        const val ACTION_POSITION_CANCEL = "app.pingt.POSITION_CANCEL"
         const val EXTRA_HOST = "host"
 
         private const val CHANNEL_ID = "ping"
