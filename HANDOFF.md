@@ -10,7 +10,7 @@ Android app that pings a host continuously like Windows `ping host -t`, using th
 - **No external libraries** (no AndroidX, Compose or Material). Plain framework APIs only.
 - Look: dark `#0C0C0C`, monospace, green accent `#3DDC84`, button green `#1E7D3A`
 - Ping colors: < green_max `#3DDC84`, < yellow_max `#FFC107`, else/loss `#F44336`, idle `#888888`
-- **Current version: 1.2 (versionCode 3)**
+- **Current version: 1.3 (versionCode 4)**
 
 ## Architecture
 
@@ -42,6 +42,8 @@ Data flow: `PingService` worker thread → `main.post` → `PingState.handleResu
 
 ## Settings (SharedPreferences file `pingt_settings`)
 
+Bubble look/behavior settings are per orientation (see `<key>_land` below); the service loads `BubbleSettings.load(prefs, landscape)` for the current orientation and reloads on rotation. Hide-in-app, vibrate, thresholds, interval are shared.
+
 | Pref key | Default | Meaning |
 |---|---|---|
 | `show_bubble` | true | Show floating bubble (needs "Display over other apps") |
@@ -60,6 +62,7 @@ Data flow: `PingService` worker thread → `main.post` → `PingState.handleResu
 | `green_max` | 80 | ms; must be 1 ≤ green < yellow ≤ 2000 |
 | `yellow_max` | 150 | ms; STABLE verdict needs avg < yellow_max |
 | `interval_ms` | 1000 | 500 / 1000 / 2000 / 5000 |
+| `<key>_land` | unset → portrait value | Landscape override for the per-orientation keys: `show_bubble`, `style`, `size`, `opacity`, `background`, `click_through`, `only_when_bad`, `blink_timeout`, `snap_mode`, `lock_position`, `fit_status_bar` (`Prefs.ORIENTED`). Read with `Prefs.getBool/getStr/getInt(p, key, landscape, def)`, write with `Prefs.key(key, landscape)` |
 | `pos_port_xf`, `pos_port_yf`, `pos_land_xf`, `pos_land_yf` | unset → Top-right preset | Position as fraction of free space on the full display (x / (displayW − bubbleW)) |
 | `last_host` | google.com | Remembered host |
 | `running_host` | – | Set while pinging; used if Android restarts the service |
@@ -71,6 +74,7 @@ Data flow: `PingService` worker thread → `main.post` → `PingState.handleResu
 - **v1.0** (versionCode 1): basic continuous ping in the Activity, cmd-style log, stats, 30-ping verdict, keep-screen-on.
 - **v1.1** (versionCode 2): foreground PingService (keeps running minimized/screen off), ongoing notification with Stop / Click-through / Hide bubble, floating bubble with 6 styles, size, opacity, background, show-only-when-bad, blink, vibrate, hide-in-app, drag/snap/lock, corner presets, settings screen with live preview, configurable thresholds and interval, host presets, click-through game mode with the Android 12 alpha cap.
 - **v1.2** (versionCode 3): free positioning anywhere on the full display incl. the status bar strip and cutout corners; positions stored as fractions per orientation (v1.1 px positions migrated); snap modes Off/Edges/Corner; 9 grid + 3 status bar presets; fit to status bar height; on-screen positioning tool (control panel overlay, D-pad, Done/Cancel, notification "Done positioning").
+- **v1.3** (versionCode 4): separate bubble settings for portrait and landscape (Portrait/Landscape selector in settings, landscape inherits portrait until changed, "Same as portrait" reset); notification toggles act on the current orientation.
 
 ## Known limits
 
@@ -80,6 +84,7 @@ Data flow: `PingService` worker thread → `main.post` → `PingState.handleResu
 - Notification permission denied on Android 13+: pinging runs, but there is no notification (no Stop/toggles outside the app).
 - If Android kills the process, the sticky restart resumes the last host; Android 12+ may refuse to start the foreground service from the background.
 - Shows network ping to the chosen host only, not game-server latency.
+- The settings screen's presets for the other orientation use the current status bar height (portrait and landscape bars can differ by a few px).
 - Nothing has an automated test; every change needs the phone checklist in the release notes / README.
 
 ## Open ideas

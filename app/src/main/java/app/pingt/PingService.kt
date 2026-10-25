@@ -32,7 +32,8 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
 
     private val main = Handler(Looper.getMainLooper())
     private lateinit var prefs: SharedPreferences
-    private lateinit var settings: BubbleSettings
+    private lateinit var settings: BubbleSettings // for the current orientation
+    private var landscape = false
     private lateinit var overlay: BubbleOverlay
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -62,7 +63,8 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs.get(this)
-        settings = BubbleSettings.load(prefs)
+        landscape = isLandscape()
+        settings = BubbleSettings.load(prefs, landscape)
         intervalMs = settings.intervalMs.toLong()
         PingState.setThresholds(settings.greenMax, settings.yellowMax)
         overlay = BubbleOverlay(this, prefs)
@@ -77,9 +79,9 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
             ACTION_START -> intent.getStringExtra(EXTRA_HOST)?.let { startPing(it) }
             ACTION_STOP -> stopPing()
             ACTION_TOGGLE_CLICK ->
-                prefs.edit().putBoolean(Prefs.CLICK_THROUGH, !settings.clickThrough).apply()
+                prefs.edit().putBoolean(Prefs.key(Prefs.CLICK_THROUGH, landscape), !settings.clickThrough).apply()
             ACTION_TOGGLE_BUBBLE ->
-                prefs.edit().putBoolean(Prefs.SHOW_BUBBLE, !settings.show).apply()
+                prefs.edit().putBoolean(Prefs.key(Prefs.SHOW_BUBBLE, landscape), !settings.show).apply()
             ACTION_POSITION_START -> startPositioning()
             ACTION_POSITION_DONE -> endPositioning(save = true)
             ACTION_POSITION_CANCEL -> endPositioning(save = false)
@@ -296,17 +298,17 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
             return
         }
         if (key == Prefs.LAST_HOST || key == Prefs.RUNNING_HOST) return
-        settings = BubbleSettings.load(p)
+        settings = BubbleSettings.load(p, landscape)
         intervalMs = settings.intervalMs.toLong()
         PingState.setThresholds(settings.greenMax, settings.yellowMax)
-        if (key == Prefs.ONLY_WHEN_BAD) {
+        if (key?.startsWith(Prefs.ONLY_WHEN_BAD) == true) {
             badShowing = PingState.lastKind == PingState.Kind.LOST ||
                 (PingState.lastKind == PingState.Kind.OK && PingState.lastMs >= PingState.greenMax)
             greenStreak = 0
         }
         overlay.applySettings(effectiveSettings())
         if (PingState.running) {
-            if (key == null || key == Prefs.CLICK_THROUGH || key == Prefs.SHOW_BUBBLE) updateNotification()
+            if (key == null || key.startsWith(Prefs.CLICK_THROUGH) || key.startsWith(Prefs.SHOW_BUBBLE)) updateNotification()
             updateBubble()
         }
     }
@@ -353,13 +355,27 @@ class PingService : Service(), PingState.Listener, SharedPreferences.OnSharedPre
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        onScreenChanged()
+        // Some devices report the new display size a moment after the config change
+        main.postDelayed({ onScreenChanged() }, 300)
+    }
+
+    private fun isLandscape() = BubbleGeometry.screen(this).let { it.x > it.y }
+
+    /** Rotation: switch to that orientation's bubble settings and position. */
+    private fun onScreenChanged() {
+        val land = isLandscape()
+        if (land != landscape) {
+            landscape = land
+            settings = BubbleSettings.load(prefs, landscape)
+            overlay.applySettings(effectiveSettings())
+            if (PingState.running) {
+                updateBubble()
+                updateNotification()
+            }
+        }
         overlay.onScreenChanged()
         panel?.onScreenChanged()
-        // Some devices report the new display size a moment after the config change
-        main.postDelayed({
-            overlay.onScreenChanged()
-            panel?.onScreenChanged()
-        }, 300)
     }
 
     // ---------------------------------------------------------------- notification

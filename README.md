@@ -24,9 +24,12 @@ While pinging there is a silent ongoing notification:
 
 ## Bubble settings
 
-Main screen → **Settings**. Every change is saved at once and applied to the running bubble. The preview at the top cycles 23 → 120 → 210 → TIMEOUT → 25 ms so you can see every color.
+Main screen → **Settings**. Every change is saved at once and applied to the running bubble.
+
+**Portrait and landscape have their own bubble settings.** Pick **Portrait** or **Landscape** at the top of the settings screen; everything down to the Position section then applies to that orientation, and the bubble switches automatically when you rotate. Landscape uses the portrait value of each setting until you change it there, and **Same as portrait** clears all landscape changes. Hide-in-app, vibrate, thresholds and ping interval are shared. The notification's Click-through / Hide bubble buttons change the setting for the orientation you're in. The preview at the top cycles 23 → 120 → 210 → TIMEOUT → 25 ms so you can see every color.
 
 | Setting | Default | What it does |
+| Bubble settings for | current orientation | Portrait / Landscape: which orientation the settings above "For both orientations" apply to |
 |---|---|---|
 | Show floating bubble | On | Asks for "Display over other apps" if not allowed yet |
 | Style | Pill | Pill (dot + ms), Dot, Text, Bars (signal bars), Graph (last 20 pings), Ring |

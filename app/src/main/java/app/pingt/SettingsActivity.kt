@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Point
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -43,6 +44,10 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     private val syncers = mutableListOf<() -> Unit>() // re-read widgets from prefs
     private var awaitingOverlay = false
 
+    // Which orientation's bubble settings this screen edits
+    private var editLand = false
+    private lateinit var sameAsPortrait: TextView
+
     // Preview demo: 23 → 120 → 210 → TIMEOUT → 25, every 1.5 s
     private val demo = listOf<Double?>(23.0, 120.0, 210.0, null, 25.0)
     private var demoIdx = 0
@@ -67,6 +72,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         window.statusBarColor = BG
         window.navigationBarColor = BG
         prefs = Prefs.get(this)
+        editLand = BubbleGeometry.screen(this).let { it.x > it.y }
         listOf(24, 22, 27, 25, 23, 30, 26, 22, 24, 28, 25, 23, 26, 24, 22).forEach { demoHistory.addLast(it.toDouble()) }
 
         val scroll = ScrollView(this).apply {
@@ -96,7 +102,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         if (awaitingOverlay) {
             awaitingOverlay = false
             if (!Settings.canDrawOverlays(this)) {
-                prefs.edit().putBoolean(Prefs.SHOW_BUBBLE, false).apply()
+                putB(Prefs.SHOW_BUBBLE, false)
                 Toast.makeText(this, "\"Display over other apps\" not allowed. Bubble stays off.", Toast.LENGTH_LONG).show()
             }
         }
@@ -127,6 +133,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             setPadding(0, px(8), 0, px(12))
             setOnClickListener { finish() }
         })
+
+        orientationRow()
 
         // Live preview
         val box = FrameLayout(this).apply {
@@ -168,15 +176,15 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         chipRow(
             "Style",
             listOf("Pill" to "pill", "Dot" to "dot", "Text" to "text", "Bars" to "bars", "Graph" to "graph", "Ring" to "ring"),
-            { prefs.getString(Prefs.STYLE, "pill") ?: "pill" },
-            { prefs.edit().putString(Prefs.STYLE, it).apply() }
+            { getS(Prefs.STYLE, "pill") },
+            { putS(Prefs.STYLE, it) }
         )
         divider()
         chipRow(
             "Size",
             listOf("Small" to "small", "Medium" to "medium", "Large" to "large"),
-            { prefs.getString(Prefs.SIZE, "medium") ?: "medium" },
-            { prefs.edit().putString(Prefs.SIZE, it).apply() }
+            { getS(Prefs.SIZE, "medium") },
+            { putS(Prefs.SIZE, it) }
         )
         divider()
         opacityRow()
@@ -184,8 +192,8 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         chipRow(
             "Background",
             listOf("Dark" to "dark", "Light" to "light", "None" to "none"),
-            { prefs.getString(Prefs.BACKGROUND, "dark") ?: "dark" },
-            { prefs.edit().putString(Prefs.BACKGROUND, it).apply() }
+            { getS(Prefs.BACKGROUND, "dark") },
+            { putS(Prefs.BACKGROUND, it) }
         )
         divider()
         switchRow("Click-through (game mode)", "Hindi haharang sa touch ng game", Prefs.CLICK_THROUGH, false)
@@ -196,6 +204,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         divider()
         positionSection()
         divider()
+        root.addView(sectionLabel("FOR BOTH ORIENTATIONS"))
         switchRow("Hide while Ping -t is open", null, Prefs.HIDE_IN_APP, true)
         divider()
         chipRow(
@@ -214,6 +223,75 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             { prefs.edit().putInt(Prefs.INTERVAL_MS, it.toInt()).apply() }
         )
         refreshHints()
+    }
+
+    // Read/write for the edited orientation; shared keys ignore the orientation
+    private fun getB(k: String, def: Boolean) = Prefs.getBool(prefs, k, editLand, def)
+    private fun getS(k: String, def: String) = Prefs.getStr(prefs, k, editLand, def)
+    private fun getI(k: String, def: Int) = Prefs.getInt(prefs, k, editLand, def)
+    private fun putB(k: String, v: Boolean) = prefs.edit().putBoolean(Prefs.key(k, editLand), v).apply()
+    private fun putS(k: String, v: String) = prefs.edit().putString(Prefs.key(k, editLand), v).apply()
+    private fun putI(k: String, v: Int) = prefs.edit().putInt(Prefs.key(k, editLand), v).apply()
+
+    /** Portrait | Landscape: which orientation the bubble settings below apply to. */
+    private fun orientationRow() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, px(10))
+        }
+        box.addView(title("Bubble settings for"))
+        val (hs, strip) = chipStrip()
+        val chips = listOf("Portrait" to false, "Landscape" to true).map { (label, land) ->
+            chip(label).also { c ->
+                c.setOnClickListener { setEditOrientation(land) }
+                strip.addView(c, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                    setMargins(0, px(8), px(8), 0)
+                })
+            } to land
+        }
+        sameAsPortrait = chip("Same as portrait").apply {
+            styleChip(this, false)
+            setOnClickListener {
+                Prefs.clearLandscapeOverrides(prefs)
+                Toast.makeText(this@SettingsActivity, "Landscape now uses the portrait settings", Toast.LENGTH_SHORT).show()
+            }
+        }
+        strip.addView(sameAsPortrait, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            setMargins(px(8), px(8), 0, 0)
+        })
+        box.addView(hs)
+        val note = subtitle("")
+        box.addView(note)
+        root.addView(box)
+        val sync = {
+            chips.forEach { (c, land) -> styleChip(c, land == editLand) }
+            sameAsPortrait.visibility =
+                if (editLand && Prefs.hasLandscapeOverrides(prefs)) View.VISIBLE else View.GONE
+            note.text = if (editLand) {
+                "Landscape uses the portrait value of each setting until you change it here. Position is always per orientation."
+            } else {
+                "Also used in landscape for every setting not changed there."
+            }
+        }
+        sync()
+        syncers.add(sync)
+    }
+
+    private fun setEditOrientation(land: Boolean) {
+        if (land == editLand) return
+        editLand = land
+        syncers.forEach { it() }
+        refreshHints()
+        updatePreview()
+    }
+
+    private fun sectionLabel(t: String) = TextView(this).apply {
+        text = t
+        setTextColor(ACCENT)
+        textSize = 11f
+        typeface = Typeface.DEFAULT_BOLD
+        letterSpacing = 0.1f
+        setPadding(0, px(10), 0, 0)
     }
 
     private fun title(t: String) = TextView(this).apply {
@@ -250,10 +328,10 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             val states = arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf())
             thumbTintList = ColorStateList(states, intArrayOf(Color.WHITE, 0xFFBBBBBB.toInt()))
             trackTintList = ColorStateList(states, intArrayOf(ACCENT_DARK, 0xFF444444.toInt()))
-            isChecked = prefs.getBoolean(key, def)
+            isChecked = getB(key, def)
             setOnCheckedChangeListener { _, on ->
-                if (prefs.getBoolean(key, def) != on) {
-                    prefs.edit().putBoolean(key, on).apply()
+                if (getB(key, def) != on) {
+                    putB(key, on)
                     onChange?.invoke(on)
                 }
             }
@@ -261,7 +339,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         row.addView(sw)
         row.setOnClickListener { sw.toggle() }
         root.addView(row)
-        syncers.add { sw.isChecked = prefs.getBoolean(key, def) }
+        syncers.add { sw.isChecked = getB(key, def) }
     }
 
     private fun chip(label: String) = TextView(this).apply {
@@ -334,7 +412,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
                 override fun onProgressChanged(sb: SeekBar, progress: Int, fromUser: Boolean) {
                     val pct = 20 + progress * 5
                     value.text = "$pct%"
-                    if (fromUser) prefs.edit().putInt(Prefs.OPACITY, pct).apply()
+                    if (fromUser) putI(Prefs.OPACITY, pct)
                 }
                 override fun onStartTrackingTouch(sb: SeekBar) {}
                 override fun onStopTrackingTouch(sb: SeekBar) {}
@@ -349,7 +427,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
         box.addView(opacityNote)
         root.addView(box)
         val sync = {
-            val pct = prefs.getInt(Prefs.OPACITY, 90).coerceIn(20, 100)
+            val pct = getI(Prefs.OPACITY, 90).coerceIn(20, 100)
             bar.progress = (pct - 20) / 5
             value.text = "$pct%"
         }
@@ -358,19 +436,12 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     }
 
     private fun positionSection() {
-        root.addView(TextView(this).apply {
-            text = "POSITION"
-            setTextColor(ACCENT)
-            textSize = 11f
-            typeface = Typeface.DEFAULT_BOLD
-            letterSpacing = 0.1f
-            setPadding(0, px(10), 0, 0)
-        })
+        root.addView(sectionLabel("POSITION"))
         chipRow(
             "Snap after drag",
             listOf("Off" to "off", "Left/Right edges" to "edges", "Nearest corner" to "corner"),
-            { prefs.getString(Prefs.SNAP_MODE, "off") ?: "off" },
-            { prefs.edit().putString(Prefs.SNAP_MODE, it).apply() }
+            { getS(Prefs.SNAP_MODE, "off") },
+            { putS(Prefs.SNAP_MODE, it) }
         )
         switchRow("Lock position", null, Prefs.LOCK_POSITION, false)
 
@@ -379,7 +450,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
             setPadding(0, px(10), 0, px(10))
         }
         box.addView(title("Move bubble to"))
-        box.addView(subtitle("For the current orientation"))
+        box.addView(subtitle("For the orientation selected at the top"))
         fun presetRow(items: List<Pair<String, String>>, short: (String) -> String) {
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             items.forEach { (id, label) ->
@@ -433,10 +504,12 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
     }
 
     private fun setPreset(id: String, label: String) {
-        val scr = BubbleGeometry.screen(this)
-        val land = scr.x > scr.y
+        val cur = BubbleGeometry.screen(this)
+        val land = editLand
+        // Screen as it is in the edited orientation
+        val scr = if ((cur.x > cur.y) == land) cur else Point(cur.y, cur.x)
         val f = BubbleGeometry.presetFractions(
-            id, BubbleSettings.load(prefs), scr, BubbleGeometry.statusBarHeight(this), dp
+            id, BubbleSettings.load(prefs, land), scr, BubbleGeometry.statusBarHeight(this), dp
         )
         Prefs.savePosition(prefs, land, f)
         Toast.makeText(this, "Bubble: $label (${if (land) "landscape" else "portrait"})", Toast.LENGTH_SHORT).show()
@@ -525,11 +598,11 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
 
     private fun refreshHints() {
         if (!::overlayHint.isInitialized) return
-        val wantBubble = prefs.getBoolean(Prefs.SHOW_BUBBLE, true)
+        val wantBubble = getB(Prefs.SHOW_BUBBLE, true)
         overlayHint.visibility =
             if (wantBubble && !Settings.canDrawOverlays(this)) View.VISIBLE else View.GONE
         opacityNote.visibility =
-            if (prefs.getBoolean(Prefs.CLICK_THROUGH, false) && Build.VERSION.SDK_INT >= 31) View.VISIBLE else View.GONE
+            if (getB(Prefs.CLICK_THROUGH, false) && Build.VERSION.SDK_INT >= 31) View.VISIBLE else View.GONE
     }
 
     private fun openOverlaySettings() {
@@ -544,7 +617,7 @@ class SettingsActivity : Activity(), SharedPreferences.OnSharedPreferenceChangeL
 
     private fun updatePreview() {
         if (!::preview.isInitialized) return
-        val s = BubbleSettings.load(prefs)
+        val s = BubbleSettings.load(prefs, editLand)
         val v = demoValue
         val kind = if (v == null) PingState.Kind.LOST else PingState.Kind.OK
         preview.setSettings(s)

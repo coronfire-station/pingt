@@ -91,6 +91,46 @@ object Prefs {
         e.putInt(VERSION, 2).apply()
     }
 
+    // ---------------------------------------------------------------- per-orientation settings
+
+    /**
+     * Bubble settings that can differ between portrait and landscape. The landscape value is
+     * stored under "<key>_land"; while it is unset, landscape uses the portrait (base) value.
+     */
+    val ORIENTED = setOf(
+        SHOW_BUBBLE, STYLE, SIZE, OPACITY, BACKGROUND, CLICK_THROUGH, ONLY_WHEN_BAD,
+        BLINK_TIMEOUT, SNAP_MODE, LOCK_POSITION, FIT_STATUS_BAR,
+    )
+    private const val LAND_SUFFIX = "_land"
+
+    /** Key to write for this orientation. */
+    fun key(base: String, landscape: Boolean) =
+        if (landscape && base in ORIENTED) base + LAND_SUFFIX else base
+
+    /** Key to read: the landscape key if set, else the shared/portrait one. */
+    private fun readKey(p: SharedPreferences, base: String, landscape: Boolean): String {
+        val k = key(base, landscape)
+        return if (p.contains(k)) k else base
+    }
+
+    fun getBool(p: SharedPreferences, base: String, landscape: Boolean, def: Boolean) =
+        p.getBoolean(readKey(p, base, landscape), def)
+
+    fun getStr(p: SharedPreferences, base: String, landscape: Boolean, def: String) =
+        p.getString(readKey(p, base, landscape), def) ?: def
+
+    fun getInt(p: SharedPreferences, base: String, landscape: Boolean, def: Int) =
+        p.getInt(readKey(p, base, landscape), def)
+
+    fun hasLandscapeOverrides(p: SharedPreferences) = ORIENTED.any { p.contains(it + LAND_SUFFIX) }
+
+    /** Landscape goes back to using the portrait settings. */
+    fun clearLandscapeOverrides(p: SharedPreferences) {
+        val e = p.edit()
+        ORIENTED.forEach { e.remove(it + LAND_SUFFIX) }
+        e.apply()
+    }
+
     fun thresholdsValid(green: Int, yellow: Int) = green >= 1 && green < yellow && yellow <= 2000
 
     /** Full physical screen size in the current rotation. */
@@ -143,7 +183,8 @@ data class BubbleSettings(
     }
 
     companion object {
-        fun load(p: SharedPreferences): BubbleSettings {
+        /** Settings for one orientation (shared ping settings are the same for both). */
+        fun load(p: SharedPreferences, landscape: Boolean = false): BubbleSettings {
             var green = p.getInt(Prefs.GREEN_MAX, 80)
             var yellow = p.getInt(Prefs.YELLOW_MAX, 150)
             if (!Prefs.thresholdsValid(green, yellow)) {
@@ -151,17 +192,17 @@ data class BubbleSettings(
                 yellow = 150
             }
             return BubbleSettings(
-                show = p.getBoolean(Prefs.SHOW_BUBBLE, true),
-                style = p.getString(Prefs.STYLE, "pill") ?: "pill",
-                size = p.getString(Prefs.SIZE, "medium") ?: "medium",
-                opacity = p.getInt(Prefs.OPACITY, 90).coerceIn(20, 100),
-                background = p.getString(Prefs.BACKGROUND, "dark") ?: "dark",
-                clickThrough = p.getBoolean(Prefs.CLICK_THROUGH, false),
-                onlyWhenBad = p.getBoolean(Prefs.ONLY_WHEN_BAD, false),
-                blinkTimeout = p.getBoolean(Prefs.BLINK_TIMEOUT, true),
-                snapMode = p.getString(Prefs.SNAP_MODE, "off") ?: "off",
-                fitStatusBar = p.getBoolean(Prefs.FIT_STATUS_BAR, false),
-                lockPosition = p.getBoolean(Prefs.LOCK_POSITION, false),
+                show = Prefs.getBool(p, Prefs.SHOW_BUBBLE, landscape, true),
+                style = Prefs.getStr(p, Prefs.STYLE, landscape, "pill"),
+                size = Prefs.getStr(p, Prefs.SIZE, landscape, "medium"),
+                opacity = Prefs.getInt(p, Prefs.OPACITY, landscape, 90).coerceIn(20, 100),
+                background = Prefs.getStr(p, Prefs.BACKGROUND, landscape, "dark"),
+                clickThrough = Prefs.getBool(p, Prefs.CLICK_THROUGH, landscape, false),
+                onlyWhenBad = Prefs.getBool(p, Prefs.ONLY_WHEN_BAD, landscape, false),
+                blinkTimeout = Prefs.getBool(p, Prefs.BLINK_TIMEOUT, landscape, true),
+                snapMode = Prefs.getStr(p, Prefs.SNAP_MODE, landscape, "off"),
+                fitStatusBar = Prefs.getBool(p, Prefs.FIT_STATUS_BAR, landscape, false),
+                lockPosition = Prefs.getBool(p, Prefs.LOCK_POSITION, landscape, false),
                 hideInApp = p.getBoolean(Prefs.HIDE_IN_APP, true),
                 vibrateAfter = p.getInt(Prefs.VIBRATE_AFTER, 3),
                 greenMax = green,

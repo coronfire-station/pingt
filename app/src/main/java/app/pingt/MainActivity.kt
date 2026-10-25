@@ -145,7 +145,9 @@ class MainActivity : Activity(), PingState.Listener {
     }
 
     private fun maybeAskOverlay() {
-        if (!prefs.getBoolean(Prefs.SHOW_BUBBLE, true) || Settings.canDrawOverlays(this)) return
+        val wanted = Prefs.getBool(prefs, Prefs.SHOW_BUBBLE, false, true) ||
+            Prefs.getBool(prefs, Prefs.SHOW_BUBBLE, true, true)
+        if (!wanted || Settings.canDrawOverlays(this)) return
         if (!prefs.getBoolean(Prefs.OVERLAY_ASKED, false)) {
             prefs.edit().putBoolean(Prefs.OVERLAY_ASKED, true).apply()
             Toast.makeText(this, "Allow \"Display over other apps\" to see the floating bubble", Toast.LENGTH_LONG).show()

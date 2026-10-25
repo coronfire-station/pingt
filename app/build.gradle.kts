@@ -11,8 +11,8 @@ android {
         applicationId = "app.pingt"
         minSdk = 24
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
     }
 
     // Fixed key committed to the repo so every GitHub build has the same
